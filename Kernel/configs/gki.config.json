@@ -2,7 +2,7 @@
   {
     "kernelSource": {
       "name": "android_gki_kernel_5.15_common",
-      "repo": "https://github.com/hfdem/android_gki_kernel_5.15_common",
+      "repo": "https://github.com/EdwinHu-OvO/android_gki_kernel_5.15_common",
       "branch": "android13-5.15-2025-03",
       "device": "gki",
       "defconfig": "gki_defconfig"
@@ -36,9 +36,9 @@
       "release": true
     },
     "enableKernelSU": true,
-    "KernelSUSFS":{
-      "enable": true,
-      "branches": "gki-android13-5.15"
-    }
+    #"KernelSUSFS":{
+    #  "enable": true,
+    #  "branches": "gki-android13-5.15"
+    #}
   }
 ]
