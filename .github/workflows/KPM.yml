@@ -1,4 +1,4 @@
-name: Build kernels test (gitee)
+name: Build kernels KPM
 
 on:
   # push:
@@ -242,7 +242,7 @@ jobs:
           fi
 
           # Apply new KernelSU patches
-          curl -LSs "https://gitee.com/liqideqq/KernelSU/raw/susfs-stable/kernel/setup.sh" | bash -s susfs-stable
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
           
       - name: 😋 Setup KSU SUSFS
         env: 
@@ -252,7 +252,7 @@ jobs:
         run: |
           # Clone repositories using the branch names
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "${{ env.SFS_BRANCH }}"
-          git clone https://gitee.com/liqideqq/kernel_patches.git
+          git clone https://github.com/WildPlusKernel/kernel_patches.git
 
           # Copy SUSFS patches
           cd ${{ env.KERNEL_NAME }}
@@ -270,6 +270,7 @@ jobs:
 
           # Add SUSFS configuration settings
           echo "CONFIG_KSU=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          echo "CONFIG_KPM=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_VFS=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_WITH_KPROBES=n" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
