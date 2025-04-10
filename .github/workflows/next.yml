@@ -304,12 +304,12 @@ jobs:
         env: 
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
         run: |
-          sed -i '$s|echo "\$res"|echo "\$res-liqideqq"|' ./scripts/setlocalversion
+          sed -i '$s|echo "\$res"|echo "\$res-cuongnguyen"|' ./scripts/setlocalversion
           # Run perl command to modify UTS_VERSION
           perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sat Apr 20 04:20:00 UTC 2024"}' ./scripts/mkcompile_h
           sed -i 's/-dirty//' ./scripts/setlocalversion
           rm -rf ./android/abi_gki_protected_exports_*
-          sed -E -i '/^CONFIG_LOCALVERSION=/ s/(.*)"$/\1-liqideqq"/' ./arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }} 
+          sed -E -i '/^CONFIG_LOCALVERSION=/ s/(.*)"$/\1-cuongnguyen"/' ./arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }} 
 
       - name: 👍 Start building the kernel
         working-directory: ${{ env.KERNEL_NAME }}
