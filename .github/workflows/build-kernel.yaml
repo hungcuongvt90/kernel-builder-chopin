@@ -1,0 +1,657 @@
+name: Build Kernel
+
+on:
+  workflow_call:
+    inputs:
+      kernel_repo:
+        description: "Kernel repository URL"
+        required: true
+        type: string
+        default: "https://github.com/hungcuongvt90/android_gki_kernel_5.15_common"
+      kernel_branch:
+        description: "Kernel repository URL"
+        required: true
+        type: string
+        default: "android13-5.15-2025-05"
+      kernelsu_branch:
+        description: "Select KernelSU Branch"
+        required: true
+        type: string
+        default: Stable
+      kernelsu_variant:
+        description: "Select KernelSU"
+        required: true
+        type: string
+        default: SukiSU
+      kernel_patch_repo:
+        description: "Select Kernel Patch repository URL"
+        required: true
+        type: string
+        default: "https://github.com/SukiSU-Ultra/SukiSU_patch"
+      hook_variant:
+        description: "Select SUSFS Hook Type"
+        required: true
+        type: string
+        default: tracepoint
+      susfs_branch:
+        description: "Select SUSFS branch"
+        required: true
+        type: string
+        default: "gki-android13-5.15"
+      use_zram:
+        description: "Enable more ZRAM algorithms?"
+        required: true
+        type: boolean
+        default: true
+      use_kpm:
+        description: "Enable KPM functionality?"
+        required: true
+        type: boolean
+        default: true
+      android_version:
+        description: "Android kernel version"
+        required: false
+        type: string
+        default: "5.15"
+jobs:
+  Read-configuration:
+    name: Set build date
+    runs-on: ubuntu-latest
+    outputs:
+      CONFIGS: ${{ steps.generate-matrix.outputs.CONFIGS }}
+      BUILD_DATE: ${{ steps.generate-builddate.outputs.BUILDDATE }}
+    steps:
+      # This action checks-out your CONFIGSitory under $GITHUB_WORKSPACE, so your workflow can access it.
+      - name: 😄 Checkout
+        uses: actions/checkout@v4
+
+      # Match the configuration files in the CONFIGS directory, read the contents and merge them into an array.
+      - name: 😆 Generate Matrix
+        id: generate-matrix
+        run: |
+          echo "CONFIGS<<EOF" >> $GITHUB_OUTPUT
+          jq -s '[.[][]]' Kernel/configs/*.config.json >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # Set compile time.
+      - name: ⏰ Set builddate
+        id: generate-builddate
+        run: echo "BUILDDATE=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
+  Build-Kernel:
+    name: "🐎 Build kernel"
+    runs-on: ubuntu-22.04
+    needs:
+      - Read-configuration
+    strategy:
+      max-parallel: 4
+      fail-fast: false
+      matrix:
+        CONFIG: ${{ fromJSON(needs.Read-configuration.outputs.CONFIGS) }}
+    env:
+      # Basic configuration
+      WORKSPACE: ${{ github.workspace }}
+      BUILD_DATE: "${{ needs.Read-configuration.outputs.BUILD_DATE }}"
+
+      # Kernel source configuration
+      KERNEL_NAME: "ishtar"
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo }}
+      KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch }}
+      KERNEL_DEVICE: "gki"
+      KERNEL_DEFCONFIG_PATH: "gki_defconfig"
+
+      KERNEL_PATCH_REPO_URL: ${{ github.event.inputs.kernel_patch_repo }}
+      HOOK_VARIANT: ${{ github.event.inputs.hook_variant }}
+      SUSFS_BRANCH: ${{ github.event.inputs.susfs_branch }}
+      USE_ZRAM: ${{ github.event.inputs.use_zram }}
+      ZRAM_PATCH_VERSION: ${{ github.event.inputs.android_version }}
+      USE_KPM: ${{ github.event.inputs.use_kpm }}
+
+      # Whether to use ccache to speed up compilation
+      ENABLE_CCACHE: true
+
+      # Whether to use ANYKERNEL3 packaged flash package
+      USE_ANYKERNEL3: true
+
+      # Whether to publish
+      CONFIRM_RELEASE: true
+
+      # Whether to enable KernelSU
+      ENABLE_KERNELSU: true
+
+      # Whether to enable KernelSU SFS
+      ENABLE_KERNELSU_SFS: true
+
+      # Set output & ccache directory
+      OUT_DIR: "${{ github.workspace }}/out"
+      CCACHE_DIR: "${{ github.workspace }}/ccache"
+    steps:
+      # Set swap space
+      - name: 📐 Set swap to 10G
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
+      # This action checks-out your CONFIGSitory under $GITHUB_WORKSPACE, so your workflow can access it.
+      - name: 😄 Checkout
+        uses: actions/checkout@v4
+
+      # Install prerequisites for Ubuntu
+      - name: ⭐ Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl git ftp lftp wget libarchive-tools ccache python2 python2-dev python3
+          sudo apt-get install -y pngcrush schedtool dpkg-dev liblz4-tool make optipng maven dwarves device-tree-compiler 
+          sudo apt-get install -y libc6-dev-i386 libelf-dev lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc
+          sudo apt-get install -y libxml2-utils libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools lzop flex tree
+          sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libfl-dev
+          sudo apt-get install -y pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl 
+          sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar llvm g++-multilib bison gperf zlib1g-dev automake
+
+      # Initialize ccache
+      - name: 🚄 Setup ccache
+        if: ${{ env.ENABLE_CCACHE == 'true' }}
+        id: hash
+        run: |
+          # Create output directory
+          mkdir -p ${{ env.OUT_DIR }}
+
+          # Initialize ccache
+          ccache -o compression=false -o cache_dir=${{ env.CCACHE_DIR }}
+
+          # Generate configuration's hash
+          echo $(echo -n '${{ toJSON(matrix.config) }}' | openssl dgst -sha1 | awk '{print $2}')
+          echo "HASH=$(echo -n '${{ toJSON(matrix.config) }}' | openssl dgst -sha1 | awk '{print $2}')" >> $GITHUB_ENV
+
+      - name: 🚅 Cache ccache & output
+        env:
+          HASH: ${{ steps.hash.outputs.HASH }}
+        if: ${{ env.ENABLE_CCACHE == 'true' }}
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.OUT_DIR }}
+            ${{ env.CCACHE_DIR }}
+          key: cache-${{ env.KERNEL_NAME }}-${{env.HASH}}-${{ env.BUILD_DATE }}
+          restore-keys: |
+            cache-${{ env.KERNEL_NAME }}-${{env.HASH}}-${{ env.BUILD_DATE }}
+            cache-${{ env.KERNEL_NAME }}-${{env.HASH}}-
+            cache-${{ env.KERNEL_NAME }}-
+
+      - name: 🌟 Clone kernel source => (${{ env.KERNEL_REPO }})
+        run: |
+          git clone --recursive --depth=1 -j $(nproc) --branch ${{ env.KERNEL_BRANCH }} ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }}
+          # tree ${{ env.KERNEL_NAME }}
+
+      - name: 💫 Get toolchains
+        env:
+          toolchains: "${{ toJSON(matrix.CONFIG.toolchains) }}"
+        run: |
+          toolchains_num="$(echo $toolchains | jq 'length')"
+          echo "🤔 There is $toolchains_num defined toolchains."
+
+          for ((i=0;i<toolchains_num;i++)); do
+            toolchain=$(echo $toolchains | jq -r ".[$i]")
+
+            toolchain_name=$(echo $toolchain | jq -r ".name")
+            
+            # From archive
+            if echo $toolchain | jq -e 'has("url")' > /dev/null; then
+              # If from archive
+              toolchain_url=$(echo $toolchain | jq -r ".url")
+              mkdir -p $toolchain_name
+
+              # Download archive
+              wget -q "$toolchain_url"
+
+              # Get filename
+              filename="${toolchain_url##*/}"
+              case "$filename" in
+                *.zip)
+                  unzip -d $toolchain_name "$filename"
+                  ;;
+                *.tar)
+                  tar xvf "$filename" -C $toolchain_name
+                  ;;
+                *.tar.gz)
+                  tar zxvf "$filename" -C $toolchain_name
+                  ;;
+                *.rar)
+                  unrar x "$filename" $toolchain_name
+                  ;;
+                *)
+                  echo "unknown file type: $filename"
+                  ;;
+              esac
+              # Delete file to avoid duplicate name conflicts 
+              rm $filename
+
+              echo "🤔 Download $toolchain_name => ($toolchain_url)"
+            else
+              # If from git
+              toolchain_repo=$(echo $toolchain | jq -r ".repo")
+              toolchain_branch=$(echo $toolchain | jq -r ".branch")
+              git clone --recursive --depth=1 -j $(nproc) --branch $toolchain_branch $toolchain_repo $toolchain_name
+
+              echo "🤔 Clone $toolchain_name => ($toolchain_repo)"
+            fi
+
+            jq -r ".binaryEnv[] | tostring" <<< "$toolchain" | while read -r subPath; do
+              echo "${{ env.WORKSPACE }}/$toolchain_name/$subPath" >> $GITHUB_PATH
+            done
+          done
+
+      - name: 😎 Set build args
+        id: generate-args
+        env:
+          PARAMS: "${{ toJSON(matrix.CONFIG.params) }}"
+          THREAD: $(nproc --all)
+        run: |
+          echo "🤔 PATH Variable: $PATH"
+
+          ARCH="arm64"
+          CC="clang/bin/clang"
+
+          args="-j${{ env.THREAD }} O=${{ env.OUT_DIR }} ARCH=$ARCH"
+          if [ -n "$CC" ]; then
+
+            if [[ "$CC" == *"/"* ]]; then
+              CC=${{ env.WORKSPACE }}/$CC
+            fi
+
+            if [ ${{ env.ENABLE_CCACHE }} = true ]; then
+              args="$args CC=\"ccache $CC\""
+            else
+              args="$args CC=$CC"
+            fi
+          fi
+          while read -r externalCommand; do
+            key=$(echo "$externalCommand" | cut -d= -f1)
+            value=$(echo "$externalCommand" | cut -d= -f2)
+            if [[ "$value" == *"/"* ]]; then
+              value="${{ env.WORKSPACE }}/$value"
+            fi
+            args="$args $key=$value"
+          done < <(jq -r '.externalCommands | to_entries[] | "\(.key)=\(.value)"' <<< "$PARAMS")
+
+          echo "ARCH=$ARCH" >> $GITHUB_ENV
+          echo "ARGS=$args" >> $GITHUB_ENV
+
+          echo "🤔 $args"
+      - name: Determine the branch for KernelSU
+        run: |
+          if [[ "${{ inputs.kernelsu_branch }}" == "Stable" && ( "${{ inputs.kernelsu_variant }}" == "SukiSU" ) ]]; then
+              echo "KSU_BRANCH=-s susfs-main" >> $GITHUB_ENV
+          elif [[ "${{ inputs.kernelsu_branch }}" == "Dev" && ( "${{ inputs.kernelsu_variant }}" == "SukiSU" ) ]]; then
+              if [[ "${{ inputs.kernel_version }}" == "5.10" ]]; then
+                  echo "KSU_BRANCH=-s susfs-test" >> $GITHUB_ENV
+              else
+                  echo "KSU_BRANCH=-s susfs-test" >> $GITHUB_ENV
+              fi
+          elif [[ "${{ inputs.kernelsu_branch }}" == "Other" && -n "${{ inputs.kernelsu_branch_other }}" ]]; then
+            echo "KSU_BRANCH=-s ${{ inputs.kernelsu_branch_other }}" >> $GITHUB_ENV
+          else
+            echo "Error: Custom branch not provided for 'Other'" >&2
+            exit 1
+          fi
+
+      - name: 😋 Setup KernelSU
+        working-directory: ${{ env.KERNEL_NAME }}
+        if: ${{ env.ENABLE_KERNELSU == 'true' }}
+        run: |
+          # Delete old KernelSU
+          if [ -d "./KernelSU" ]; then
+            rm -rf "./KernelSU"
+          fi
+          if [ -d "./drivers/kernelsu" ]; then
+            rm -rf "./drivers/kernelsu"
+          fi
+
+          if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
+            echo "Adding KernelSU Official..."
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash $KSU_BRANCH
+          elif [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
+            echo "Adding KernelSU Next..."
+            curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash $KSU_BRANCH
+          elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
+            echo "Adding KernelSU MKSU..."
+            curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash $KSU_BRANCH
+          elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+            echo "Adding KernelSU SukiSU..."
+            curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $KSU_BRANCH
+          fi
+
+      - name: 😋 Setup KSU SUSFS
+        if: ${{ env.ENABLE_KERNELSU == 'true' && env.ENABLE_KERNELSU_SFS == 'true' }}
+        run: |
+          ls -la
+
+          # Clone repositories using the branch names
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b "${{ env.SUSFS_BRANCH }}"
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
+
+          ls -la
+
+          cd ${{ env.KERNEL_NAME }}
+
+          if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
+            echo "Applying SUSFS patches for Official KernelSU..."
+            cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+            patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch
+          elif [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
+            echo "Applying SUSFS patches for KernelSU-Next..."
+            cp ../kernel_patches/next/scope_min_manual_hooks_v1.5.patch ./
+            patch -p1 -F 3 < scope_min_manual_hooks_v1.5.patch
+          elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
+            echo "Applying SUSFS patches for MKSU..."
+            cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+            patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
+
+            echo "Applying MKSU specific SUSFS patch..."
+            cp ../kernel_patches/mksu/mksu_susfs.patch ./
+            patch -p1 < mksu_susfs.patch || true
+            cp ../kernel_patches/mksu/fix.patch ./
+            patch -p1 < fix.patch || true
+          elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+            echo "Applying SUSFS patches for SukiSU..."
+            cp ../susfs4ksu/kernel_patches/50_add_susfs_in_${{ env.SUSFS_BRANCH }}.patch ./
+            cp ../susfs4ksu/kernel_patches/fs/* ./fs/
+            cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
+
+            patch -p1 < 50_add_susfs_in_${{ env.SUSFS_BRANCH }}.patch || true
+
+            if [ "${{ env.HOOK_VARIANT }}" == "tracepoint" ]; then
+                cp ../SukiSU_patch/hooks/sukisu_tracepoint_hooks_v1.1.patch ./
+                patch -p1 -F 3 < sukisu_tracepoint_hooks_v1.1.patch
+            else
+                cp ../SukiSU_patch/hooks/syscall_hooks.patch ./
+                patch -p1 -F 3 < syscall_hooks.patch
+            fi
+          else
+            echo "Invalid KernelSU variant selected!"
+            exit 1
+          fi
+
+          echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+      - name: Apply Hide Stuff Patches
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          # Apply additional patch
+
+          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+              cp ../SukiSU_patch/69_hide_stuff.patch ./
+              patch -p1 -F 3 < 69_hide_stuff.patch
+          else
+              cp ../kernel_patches/69_hide_stuff.patch ./
+              patch -p1 -F 3 < 69_hide_stuff.patch
+          fi
+
+      - name: Copy source files & apply LZ4KD & ZSTDN patches
+        working-directory: ${{ env.KERNEL_NAME }}
+        if: ${{ inputs.use_zram == 'true' && inputs.kernelsu_variant == 'SukiSU' }}
+        run: |
+          echo "Apply LZ4KD patches"
+
+          cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
+          cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
+          cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
+          cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+
+          cp ../SukiSU_patch/other/zram/zram_patch/${{ env.ZRAM_PATCH_VERSION }}/lz4kd.patch ./
+          echo "Applying lz4kd patch"
+          patch -p1 -F 3 < lz4kd.patch || true
+          echo "Completed LZ4KD patch"
+
+          cp ../SukiSU_patch/other/zram/zram_patch/${{ env.ZRAM_PATCH_VERSION }}/lz4k_oplus.patch ./
+          echo "Applying lz4k_oplus patch"
+          patch -p1 -F 3 < lz4k_oplus.patch || true
+          echo "Completed the lz4k_oplus patch"
+
+      - name: LZ4KD & Lz4k_oplus Configuration
+        working-directory: ${{ env.KERNEL_NAME }}
+        if: ${{ inputs.use_zram == 'true' && inputs.kernelsu_variant == 'SukiSU' }}
+        run: |
+          set -x
+          set -e
+          echo "Write LZ4KD&ZSTDN config dependency"
+          CONFIG_FILE="./arch/$ARCH/configs/gki_defconfig"
+
+          if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
+              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
+              echo "CONFIG_ZRAM=y" >> "$CONFIG_FILE"
+              echo "CONFIG_MODULE_SIG=n" >> "$CONFIG_FILE"
+              echo "CONFIG_CRYPTO_LZO=y" >> "$CONFIG_FILE"
+              echo "CONFIG_ZRAM_DEF_COMP_LZ4KD=y" >> "$CONFIG_FILE"
+          fi
+
+          if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
+              # sed -i 's/CONFIG_MODULE_SIG=y/CONFIG_MODULE_SIG=n/g' "$CONFIG_FILE"
+              if grep -q "CONFIG_ZSMALLOC" -- "$CONFIG_FILE"; then
+                  echo "Hint: The file $CONFIG_FILE contains the string CONFIG_ZSMALLOC."
+                  sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
+              else
+                  echo "Warning: File $CONFIG_FILE does not contain string CONFIG_ZSMALLOC."
+                  echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
+              fi
+
+              sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
+          fi
+
+          if [ "${{ inputs.kernel_version }}" = "6.6" ]; then
+              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
+              sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
+          fi
+
+          if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
+            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$CONFIG/modules.bzl"
+            echo "CONFIG_MODULE_SIG_FORCE=n" >> "$CONFIG_FILE"
+            echo 'Android14_Bazel:已修复zram&zsmalloc'
+          fi
+
+          if grep -q "CONFIG_ZSMALLOC=y" "$CONFIG_FILE" && grep -q "CONFIG_ZRAM=y" "$CONFIG_FILE"; then
+            echo "CONFIG_CRYPTO_LZ4HC=y" >> "$CONFIG_FILE"
+            echo "CONFIG_CRYPTO_LZ4K=y" >> "$CONFIG_FILE"
+            echo "CONFIG_CRYPTO_LZ4KD=y" >> "$CONFIG_FILE"
+            echo "CONFIG_CRYPTO_842=y" >> "$CONFIG_FILE"
+            echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> "$CONFIG_FILE"
+            echo "CONFIG_ZRAM_WRITEBACK=y" >> "$CONFIG_FILE"
+          fi
+      - name: Add SUSFS configuration settings
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          CONFIG_FILE="./arch/$ARCH/configs/gki_defconfig"
+          echo "Adding configuration settings to gki_defconfig..."
+
+          # Add KSU configuration settings
+          echo "CONFIG_KSU=y" >> $CONFIG_FILE
+
+          if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
+            echo "CONFIG_KSU_KPROBES_HOOK=n" >> $CONFIG_FILE
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
+          elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+            echo "CONFIG_KPM=y" >> $CONFIG_FILE
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $CONFIG_FILE
+          elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
+          fi
+
+          # Add additional tmpfs config setting
+          echo "CONFIG_TMPFS_XATTR=y" >> $CONFIG_FILE
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> $CONFIG_FILE
+
+          # Add additional config setting
+          echo "CONFIG_IP_NF_TARGET_TTL=y" >> $CONFIG_FILE
+          echo "CONFIG_IP6_NF_TARGET_HL=y" >> $CONFIG_FILE
+          echo "CONFIG_IP6_NF_MATCH_HL=y" >> $CONFIG_FILE
+
+          # Add BBR Config
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> $CONFIG_FILE
+          echo "CONFIG_TCP_CONG_BBR=y" >> $CONFIG_FILE
+          echo "CONFIG_NET_SCH_FQ=y" >> $CONFIG_FILE
+          echo "CONFIG_TCP_CONG_BIC=n" >> $CONFIG_FILE
+          echo "CONFIG_TCP_CONG_WESTWOOD=n" >> $CONFIG_FILE
+          echo "CONFIG_TCP_CONG_HTCP=n" >> $CONFIG_FILE
+
+          # Add SUSFS configuration settings
+          echo "CONFIG_KSU_SUSFS=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $CONFIG_FILE
+          if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $CONFIG_FILE
+          else
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=n" >> $CONFIG_FILE
+          fi
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $CONFIG_FILE
+
+          # Remove check_defconfig
+          sed -i 's/check_defconfig//' ./build.config.gki
+
+
+          sed -i '$s|echo "\$res"|echo "\$res-ab11001737"|' ./scripts/setlocalversion
+
+          cat $CONFIG_FILE
+
+      - name: 🧹 Commit to avoid dirty
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          rm android/abi_gki_protected_exports_* || echo "No protected exports!"
+          git config --global user.email "bot@kernelsu.org"
+          git config --global user.name "KernelSUBot"
+          git add -A && git commit -a -m "Add KernelSU"
+
+      - name: 👍 Start building the kernel
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          echo "🤔 PATH Variable: $PATH"
+          export KBUILD_BUILD_TIMESTAMP="Wed Oct 25 05:41:09 UTC 2023"
+          export KBUILD_BUILD_HOST=Github-Action
+          export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
+
+          echo "Start to build kernel with following args:\n ${{ env.ARGS }}\nDeconfig path:\n${{ env.KERNEL_DEFCONFIG_PATH }}"
+
+          make ${{ env.ARGS }} ${{ env.KERNEL_DEFCONFIG_PATH }}
+          make ${{ env.ARGS }}
+          ccache --show-stats
+      - name: Apply KPM
+        if: ${{ inputs.use_kpm == 'true' && inputs.kernelsu_variant == 'SukiSU' && inputs.android_version != '6.6' }}
+        run: |
+          echo "Start to patch KPM" 
+          ls -la ${{ env.OUT_DIR }}/arch/
+          ls -la ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
+          cd ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
+          ls -la .
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch_linux
+          chmod +x patch_linux
+          ./patch_linux
+          rm -f Image
+          mv oImage Image
+          echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-KPM-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+
+      - name: 💛 Upload Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-Image
+          path: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 💙 Upload Image.gz
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-Image.gz
+          path: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 💙 Upload Image.gz-dtb
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-Image.gz-dtb
+          path: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz-dtb
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 💜 Upload dtb
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-dtb
+          path: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtb
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: ❤️ Upload dtbo.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-dtbo.img
+          path: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: ☢️ Upload output directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-Output
+          path: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
+          retention-days: 7
+
+      - name: ⏰ Pack Anykernel3
+        if: ${{ env.USE_ANYKERNEL3 == 'true' }}
+        env:
+          PARAMS: "${{ toJSON(matrix.CONFIG.AnyKernel3) }}"
+        run: |
+          if echo -n '${{ env.PARAMS }}' | jq -e 'has("custom")' > /dev/null; then
+            CUSTOM_ANYKERNEL3=$(echo -n '${{ env.PARAMS }}' | jq -r ".custom")
+            ANYKERNEL_REPO=$(echo $CUSTOM_ANYKERNEL3 | jq -r ".repo")
+            ANYKERNEL_BRANCH=$(echo $CUSTOM_ANYKERNEL3 | jq -r ".branch")
+            git clone --recursive --depth=1 -j $(nproc) --branch $ANYKERNEL_BRANCH $ANYKERNEL_REPO AnyKernel3
+            echo "🤔 Use custom AnyKernel3 => ($ANYKERNEL_REPO)"
+          else
+            git clone --recursive --depth=1 -j $(nproc) https://github.com/WildPlusKernel/AnyKernel3 AnyKernel3
+            echo "🤔 Use WildPlus Anykernel3 => (https://github.com/WildPlusKernel/AnyKernel3)"
+          fi
+
+          if [ -e "${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz-dtb" ]; then
+            cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz-dtb ./AnyKernel3/
+          else
+            if [ -e "${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image" ]; then
+              cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image ./AnyKernel3/
+            fi
+            if [ -e "${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo" ]; then
+              cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo ./AnyKernel3/
+            fi
+            if [ -e "${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img" ]; then
+              cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img ./AnyKernel3/
+            fi
+          fi
+
+          cd AnyKernel3/
+          zip -q -r "${{ env.ANYKERNEL3_FILE }}.zip" *
+          ls -la .
+          ls -la AnyKernel3/
+
+      - name: "💾 Upload AnyKernel3 image => (${{ env.BUILD_DATE }})"
+        uses: actions/upload-artifact@v4
+        if: ${{ env.USE_ANYKERNEL3 == 'true' }}
+        with:
+          name: "${{ env.ANYKERNEL3_FILE }}"
+          path: AnyKernel3/*
+
+      - name: "🧧 Create GitHub Release => (${{ inputs.kernelsu_variant }} - ${{ env.BUILD_DATE }})"
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        if: ${{ env.USE_ANYKERNEL3 == 'true' && env.CONFIRM_RELEASE == 'true' }}
+        with:
+          tag_name: v${{ env.BUILD_DATE }}.${{ github.run_number }}
+          files: "${{ env.WORKSPACE }}/AnyKernel3/${{ env.ANYKERNEL3_FILE }}.zip"
+          generate_release_notes: true
