@@ -1,13 +1,16 @@
-name: Build kernels mksu
+name: Build SukiSU kernels syscall hook
 
 on:
   # push:
     # paths:
       # - ".github/workflows/build.yml"
   workflow_dispatch:
-  schedule:
-    - cron: "30 21 * * 5"
-
+    inputs:
+          kernel_repo:
+            description: "Kernel repository URL"
+            required: true
+            type: string
+            default: "https://github.com/hungcuongvt90/android_gki_kernel_5.15_common"
 jobs:
   Read-configuration:
     name: 🐂 Parse *.config.json
@@ -50,7 +53,7 @@ jobs:
 
       # Kernel source configuration
       KERNEL_NAME: ${{ matrix.CONFIG.kernelSource.name }}
-      KERNEL_REPO: ${{ matrix.CONFIG.kernelSource.repo }}
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo }}
       KERNEL_BRANCH: ${{ matrix.CONFIG.kernelSource.branch }}
       KERNEL_DEVICE: ${{ matrix.CONFIG.kernelSource.device }}
       KERNEL_DEFCONFIG_PATH: ${{ matrix.CONFIG.kernelSource.defconfig }}
@@ -242,8 +245,8 @@ jobs:
           fi
 
           # Apply new KernelSU patches
-          curl -LSs "https://raw.githubusercontent.com/liqideqq/KernelSU/susfs-dev/kernel/setup.sh" | bash -s susfs-dev
-          
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
+
       - name: 😋 Setup KSU SUSFS
         env: 
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
@@ -269,7 +272,7 @@ jobs:
           # Add SUSFS configuration settings
           echo "CONFIG_KSU=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
-          
+          echo "CONFIG_KPM=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_SUSFS=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
@@ -297,6 +300,18 @@ jobs:
           git config --global user.email "bot@kernelsu.org"
           git config --global user.name "KernelSUBot"
           git add -A && git commit -a -m "Add KernelSU"
+
+      - name: 🧹 Config Kernel Name
+        working-directory: ${{ env.KERNEL_NAME }}
+        env: 
+          ARCH: ${{ steps.generate-args.outputs.ARCH }}
+        run: |
+          # sed -i '$s|echo "\$res"|echo "\$res-cuongnguyen"|' ./scripts/setlocalversion
+          # Run perl command to modify UTS_VERSION
+          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sat Apr 20 04:20:00 UTC 2024"}' ./scripts/mkcompile_h
+          sed -i 's/-dirty//' ./scripts/setlocalversion
+          rm -rf ./android/abi_gki_protected_exports_*
+          sed -E -i '/^CONFIG_LOCALVERSION=/ s/(.*)"$/\1-cuongnguyen"/' ./arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }} 
 
       - name: 👍 Start building the kernel
         working-directory: ${{ env.KERNEL_NAME }}
@@ -375,7 +390,7 @@ jobs:
         env:
           PARAMS: "${{ toJSON(matrix.CONFIG.AnyKernel3) }}"
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
-          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
+          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/syscall-hook-SukiSU-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
         run: |
           if echo -n '${{ env.PARAMS }}' | jq -e 'has("custom")' > /dev/null; then
             CUSTOM_ANYKERNEL3=$(echo -n '${{ env.PARAMS }}' | jq -r ".custom")
@@ -407,20 +422,20 @@ jobs:
 
       - name: "💾 Upload AnyKernel3 image => (${{ env.BUILD_DATE }})"
         env:
-          ANYKERNEL3_FILE: "AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
+          ANYKERNEL3_FILE: "syscall-hook-SukiSU-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
         uses: actions/upload-artifact@v4
         if: ${{ env.USE_ANYKERNEL3 == 'true' }}
         with:
           name: "${{ env.ANYKERNEL3_FILE }}"
           path: AnyKernel3/*
 
-      - name: 🧧 Create GitHub Release => (${{ env.BUILD_DATE }})
+      - name: "🧧 Create GitHub Release => Syscall Hook Kernel (${{ env.BUILD_DATE }})"
         env:
-          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
+          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/syscall-hook-SukiSU-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         if: ${{ env.USE_ANYKERNEL3 == 'true' && env.CONFIRM_RELEASE == 'true' }}
         with:
           tag_name: v${{ env.BUILD_DATE }}.${{ github.run_number }}
-          files: "${{ env.ANYKERNEL3_FILE }}.zip"
+          files: "syscall-hook-${{ env.ANYKERNEL3_FILE }}.zip"
           generate_release_notes: true

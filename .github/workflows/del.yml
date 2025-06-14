@@ -65,5 +65,24 @@ jobs:
         with:
           gh_token: ${{secrets.GITHUB_TOKEN}}
           delete_releases: true
-          releases_keep_latest: 2
+          releases_keep_latest: 0
           delete_tags: true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.email "atimor@126.com" 
+          git config --global user.name "liqideqq"
+
+      - name: Delete all remote Git tags
+        run: |
+          echo "Fetching all tags..."
+          git fetch --tags
+
+          echo "Deleting all remote tags..."
+          git tag -l | while read tag; do
+            echo "Deleting tag: $tag"
+            git push origin :refs/tags/$tag
+          done

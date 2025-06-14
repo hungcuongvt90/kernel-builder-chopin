@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: "Kernel repository URL"
+        required: true
+        type: string
+        default: "https://github.com/hungcuongvt90/android_gki_kernel_5.15_common"
+      kernel_branch:
+        description: "Kernel repository URL"
+        required: true
+        type: string
+        default: "android13-5.15-2025-05"
+      kernelsu_variant:
+        description: "Select KernelSU"
+        required: true
+        type: choice
+        options:
+          - Official
+          - Next
+          - MKSU
+          - SukiSU
+        default: SukiSU
+      kernelsu_branch:
+        description: "Select KernelSU Branch"
+        required: true
+        type: choice
+        options:
+          - Stable
+          - Dev
+        default: stable
+      kernel_patch_repo:
+        description: "Select Kernel Patch repository URL"
+        required: true
+        type: string
+        default: "https://github.com/SukiSU-Ultra/SukiSU_patch"
+      hook_variant:
+        description: "Select SUSFS Hook Type"
+        required: true
+        type: choice
+        options:
+          - syscall
+          - tracepoint
+        default: tracepoint
+      susfs_branch:
+        description: "Select SUSFS branch"
+        required: true
+        type: choice
+        options:
+          - gki-android12-5.10
+          - gki-android13-5.10
+          - gki-android13-5.15
+          - gki-android13-5.15-dev
+          - gki-android14-5.15
+          - gki-android14-6.1
+          - gki-android14-6.1-dev
+          - gki-android15-6.6
+        default: "gki-android13-5.15"
+      use_zram:
+        description: "Enable more ZRAM algorithms?"
+        required: true
+        type: boolean
+        default: false
+      use_kpm:
+        description: "Enable KPM functionality?"
+        required: true
+        type: boolean
+        default: true
+      android_version:
+        description: "Android kernel version"
+        required: true
+        type: choice
+        options:
+          - "5.10"
+          - "5.15"
+          - "6.1"
+          - "6.6"
+        default: "5.15"
+jobs:
+  build-kernel:
+    uses: ./.github/workflows/build-kernel.yaml
+    secrets: inherit
+    with:
+      kernel_repo: ${{ inputs.kernel_repo }}
+      kernel_branch: ${{ inputs.kernel_branch }}
+      kernelsu_variant: ${{ inputs.kernelsu_variant }}
+      kernelsu_branch: ${{ inputs.kernelsu_branch }}
+      kernel_patch_repo: ${{ inputs.kernel_patch_repo }}
+      hook_variant: ${{ inputs.hook_variant }}
+      susfs_branch: ${{ inputs.susfs_branch }}
+      use_zram: ${{ inputs.use_zram }}
+      use_kpm: ${{ inputs.use_kpm }}
+      android_version: ${{ inputs.android_version }}
