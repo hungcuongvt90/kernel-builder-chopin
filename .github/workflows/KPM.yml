@@ -1,12 +1,12 @@
 name: Build kernels KPM
 
-on:
+# on:
   # push:
     # paths:
       # - ".github/workflows/build.yml"
-  workflow_dispatch:
-  schedule:
-    - cron: "30 21 * * 5"
+  # workflow_dispatch:
+  # schedule:
+  #   - cron: "30 21 * * 5"
 
 jobs:
   Read-configuration:
