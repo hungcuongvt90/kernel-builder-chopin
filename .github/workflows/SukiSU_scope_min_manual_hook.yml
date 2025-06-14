@@ -1,16 +1,16 @@
-name: Build kernels next
+name: Build SukiSU kernels min manual hook
 
 on:
   # push:
     # paths:
-      # - ".github/workflows/kernel_test.yml"
+      # - ".github/workflows/build.yml"
   workflow_dispatch:
     inputs:
-        kernel_repo:
-          description: "Kernel repository URL"
-          required: true
-          type: string
-          default: "https://github.com/hungcuongvt90/android_gki_kernel_5.15_common"
+          kernel_repo:
+            description: "Kernel repository URL"
+            required: true
+            type: string
+            default: "https://github.com/hungcuongvt90/android_gki_kernel_5.15_common"
 jobs:
   Read-configuration:
     name: 🐂 Parse *.config.json
@@ -237,18 +237,16 @@ jobs:
         if: ${{ env.ENABLE_KERNELSU == 'true' }}
         run: |
           # Delete old KernelSU
-          if [ -d "./KernelSU-Next" ]; then
-            rm -rf "./KernelSU-Next"
+          if [ -d "./KernelSU" ]; then
+            rm -rf "./KernelSU"
           fi
           if [ -d "./drivers/kernelsu" ]; then
             rm -rf "./drivers/kernelsu"
           fi
 
           # Apply new KernelSU patches
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-
-          cat arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
-
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
+          
       - name: 😋 Setup KSU SUSFS
         env: 
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
@@ -256,8 +254,8 @@ jobs:
         if: ${{ env.ENABLE_KERNELSU == 'true' && env.ENABLE_KERNELSU_SFS == 'true' }}
         run: |
           # Clone repositories using the branch names
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "${{ env.SFS_BRANCH }}"
-          git clone https://github.com/WildKernels/kernel_patches.git
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b "${{ env.SFS_BRANCH }}"
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
 
           # Copy SUSFS patches
           cd ${{ env.KERNEL_NAME }}
@@ -265,23 +263,21 @@ jobs:
           cp ../susfs4ksu/kernel_patches/fs/* ./fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
 
-          # Applying SUSFS patches
-          cd ./KernelSU-Next
-          cp ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
-            patch -p1 --forward < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch || true
-          # Apply common SUSFS patch
-          cd ..
           patch -p1 < 50_add_susfs_in_${{ env.SFS_BRANCH }}.patch || true
+
           # Apply New Hooks Patches
-#          cp ../kernel_patches/next/syscall_hooks.patch ./
-          cp ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
-          # Apply Hide Stuff Patches
-          cp ../kernel_patches/69_hide_stuff.patch ./
-          patch -p1 -F 3 < 69_hide_stuff.patch
+          # cp ../SukiSU_patch/hooks/syscall_hooks.patch ./
+          # patch -p1 -F 3 < syscall_hooks.patch
+          cp ../SukiSU_patch/hooks/scope_min_manual_hooks_v1.5.patch ./
+          patch -p1 -F 3 < scope_min_manual_hooks_v1.5.patch
 
           # Add SUSFS configuration settings
           echo "CONFIG_KSU=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
-          echo "CONFIG_KSU_WITH_KPROBES=n" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          echo "CONFIG_KPM=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          @ echo "CONFIG_KSU_TRACEPOINT_HOOK=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          
           echo "CONFIG_KSU_SUSFS=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
@@ -297,19 +293,17 @@ jobs:
           echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
-          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          sed -i '$s|echo "\$res"|echo "\$res-ab11001737"|' ./scripts/setlocalversion
 
-      - name: 🧹 Config Kernel Name
+          cat arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
+          
+      - name: 🧹 Commit to avoid dirty
         working-directory: ${{ env.KERNEL_NAME }}
-        env: 
-          ARCH: ${{ steps.generate-args.outputs.ARCH }}
         run: |
-          # sed -i '$s|echo "\$res"|echo "\$res-cuongnguyen"|' ./scripts/setlocalversion
-          # Run perl command to modify UTS_VERSION
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sat Apr 20 04:20:00 UTC 2024"}' ./scripts/mkcompile_h
-          sed -i 's/-dirty//' ./scripts/setlocalversion
-          rm -rf ./android/abi_gki_protected_exports_*
-          sed -E -i '/^CONFIG_LOCALVERSION=/ s/(.*)"$/\1-cuongnguyen"/' ./arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }} 
+          rm android/abi_gki_protected_exports_* || echo "No protected exports!"
+          git config --global user.email "bot@kernelsu.org"
+          git config --global user.name "KernelSUBot"
+          git add -A && git commit -a -m "Add KernelSU"
 
       - name: 👍 Start building the kernel
         working-directory: ${{ env.KERNEL_NAME }}
@@ -317,9 +311,9 @@ jobs:
           ARGS: ${{ steps.generate-args.outputs.ARGS }}
         run: |
           echo "🤔 PATH Variable: $PATH"
+          export KBUILD_BUILD_TIMESTAMP="Wed Oct 25 05:41:09 UTC 2023"
           export KBUILD_BUILD_HOST=Github-Action
           export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
-          echo "Params to build: ${{ env.ARGS }}.\nConfig kernel: ${{ env.KERNEL_DEFCONFIG_PATH }}"
           make ${{ env.ARGS }} ${{ env.KERNEL_DEFCONFIG_PATH }}
           make ${{ env.ARGS }}
           # tree ${{ env.OUT_DIR }}
@@ -388,7 +382,7 @@ jobs:
         env:
           PARAMS: "${{ toJSON(matrix.CONFIG.AnyKernel3) }}"
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
-          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/KSUN-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-${{ github.run_number }}"
+          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/min-manual-hook-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
         run: |
           if echo -n '${{ env.PARAMS }}' | jq -e 'has("custom")' > /dev/null; then
             CUSTOM_ANYKERNEL3=$(echo -n '${{ env.PARAMS }}' | jq -r ".custom")
@@ -420,20 +414,20 @@ jobs:
 
       - name: "💾 Upload AnyKernel3 image => (${{ env.BUILD_DATE }})"
         env:
-          ANYKERNEL3_FILE: "KSUN-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-${{ github.run_number }}"
+          ANYKERNEL3_FILE: "min-manual-hook-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
         uses: actions/upload-artifact@v4
         if: ${{ env.USE_ANYKERNEL3 == 'true' }}
         with:
           name: "${{ env.ANYKERNEL3_FILE }}"
           path: AnyKernel3/*
 
-      - name: 🧧 Create GitHub Release => (${{ env.BUILD_DATE }})
+      - name: 🧧 "Create GitHub Release => Manual Hook Kernel (${{ env.BUILD_DATE }})""
         env:
-          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/KSUN-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-${{ github.run_number }}"
+          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/min-manual-hook-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         if: ${{ env.USE_ANYKERNEL3 == 'true' && env.CONFIRM_RELEASE == 'true' }}
         with:
           tag_name: v${{ env.BUILD_DATE }}.${{ github.run_number }}
-          files: "${{ env.ANYKERNEL3_FILE }}.zip"
+          files: "min-manual-hook-${{ env.ANYKERNEL3_FILE }}.zip"
           generate_release_notes: true
