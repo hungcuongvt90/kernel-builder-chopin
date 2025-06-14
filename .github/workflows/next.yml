@@ -269,8 +269,6 @@ jobs:
           cd ./KernelSU-Next
           cp ../../kernel_patches/next/0001-kernel-patch-susfs-v1.5.7-to-KernelSU-Next-v1.0.7.patch ./
             patch -p1 --forward < 0001-kernel-patch-susfs-v1.5.7-to-KernelSU-Next-v1.0.7.patch || true
-          cp ../../kernel_patches/next/ksun_susfs_v1.5.7_patch_12647+.patch ./
-            patch -p1 --forward < ksun_susfs_v1.5.7_patch_12647+.patch || true
           # Apply common SUSFS patch
           cd ..
           patch -p1 < 50_add_susfs_in_${{ env.SFS_BRANCH }}.patch || true
