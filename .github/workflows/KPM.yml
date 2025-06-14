@@ -4,10 +4,13 @@ name: Build kernels KPM
   # push:
     # paths:
       # - ".github/workflows/build.yml"
-  # workflow_dispatch:
-  # schedule:
-  #   - cron: "30 21 * * 5"
-
+  workflow_dispatch:
+    inputs:
+          kernel_repo:
+            description: "Kernel repository URL"
+            required: true
+            type: string
+            default: "https://github.com/hungcuongvt90/android_gki_kernel_5.15_common"
 jobs:
   Read-configuration:
     name: 🐂 Parse *.config.json
@@ -50,7 +53,7 @@ jobs:
 
       # Kernel source configuration
       KERNEL_NAME: ${{ matrix.CONFIG.kernelSource.name }}
-      KERNEL_REPO: ${{ matrix.CONFIG.kernelSource.repo }}
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo }}
       KERNEL_BRANCH: ${{ matrix.CONFIG.kernelSource.branch }}
       KERNEL_DEVICE: ${{ matrix.CONFIG.kernelSource.device }}
       KERNEL_DEFCONFIG_PATH: ${{ matrix.CONFIG.kernelSource.defconfig }}
