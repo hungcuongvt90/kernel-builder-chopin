@@ -5,9 +5,12 @@ on:
     # paths:
       # - ".github/workflows/build.yml"
   workflow_dispatch:
-  schedule:
-    - cron: "30 21 * * 5"
-
+    inputs:
+          kernel_repo:
+            description: "Kernel repository URL"
+            required: true
+            type: string
+            default: "https://github.com/hungcuongvt90/android_gki_kernel_5.15_common"
 jobs:
   Read-configuration:
     name: 🐂 Parse *.config.json
@@ -50,7 +53,7 @@ jobs:
 
       # Kernel source configuration
       KERNEL_NAME: ${{ matrix.CONFIG.kernelSource.name }}
-      KERNEL_REPO: ${{ matrix.CONFIG.kernelSource.repo }}
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo }}
       KERNEL_BRANCH: ${{ matrix.CONFIG.kernelSource.branch }}
       KERNEL_DEVICE: ${{ matrix.CONFIG.kernelSource.device }}
       KERNEL_DEFCONFIG_PATH: ${{ matrix.CONFIG.kernelSource.defconfig }}
@@ -242,8 +245,8 @@ jobs:
           fi
 
           # Apply new KernelSU patches
-          curl -LSs "https://raw.githubusercontent.com/liqideqq/KernelSU/susfs-dev/kernel/setup.sh" | bash -s susfs-dev
-          
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+
       - name: 😋 Setup KSU SUSFS
         env: 
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
@@ -297,6 +300,18 @@ jobs:
           git config --global user.email "bot@kernelsu.org"
           git config --global user.name "KernelSUBot"
           git add -A && git commit -a -m "Add KernelSU"
+
+      - name: 🧹 Config Kernel Name
+        working-directory: ${{ env.KERNEL_NAME }}
+        env: 
+          ARCH: ${{ steps.generate-args.outputs.ARCH }}
+        run: |
+          # sed -i '$s|echo "\$res"|echo "\$res-cuongnguyen"|' ./scripts/setlocalversion
+          # Run perl command to modify UTS_VERSION
+          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sat Apr 20 04:20:00 UTC 2024"}' ./scripts/mkcompile_h
+          sed -i 's/-dirty//' ./scripts/setlocalversion
+          rm -rf ./android/abi_gki_protected_exports_*
+          sed -E -i '/^CONFIG_LOCALVERSION=/ s/(.*)"$/\1-cuongnguyen"/' ./arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }} 
 
       - name: 👍 Start building the kernel
         working-directory: ${{ env.KERNEL_NAME }}
@@ -416,7 +431,7 @@ jobs:
 
       - name: 🧧 Create GitHub Release => (${{ env.BUILD_DATE }})
         env:
-          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
+          ANYKERNEL3_FILE: "${{ env.WORKSPACE }}/SukiSU-AnyKernel3-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}"
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         if: ${{ env.USE_ANYKERNEL3 == 'true' && env.CONFIRM_RELEASE == 'true' }}
