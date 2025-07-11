@@ -1,4 +1,4 @@
-name: Build kernels mksu
+name: Build kernels SukiSU
 
 on:
   # push:
