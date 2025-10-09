@@ -318,8 +318,8 @@ jobs:
           make ${{ env.ARGS }} ${{ env.KERNEL_DEFCONFIG_PATH }}
           make ${{ env.ARGS }}
           # tree ${{ env.OUT_DIR }}
-          ls -la cd ${{ env.OUT_DIR }}/arch/
-          ls -la cd ${{ env.OUT_DIR }}/arch/arm64/boot/
+          ls -la ${{ env.OUT_DIR }}/arch/
+          ls -la ${{ env.OUT_DIR }}/arch/arm64/boot/
           cd ${{ env.OUT_DIR }}/arch/arm64/boot/
           ls -la .
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch_linux
