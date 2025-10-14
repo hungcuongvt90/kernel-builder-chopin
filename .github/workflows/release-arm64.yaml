@@ -1,4 +1,4 @@
-name: Release
+name: Release ARM64
 
 
 on:
@@ -81,7 +81,7 @@ on:
         default: "5.15"
 jobs:
   build-kernel:
-    uses: ./.github/workflows/build-kernel.yaml
+    uses: ./.github/workflows/build-kernel-arm64.yaml
     secrets: inherit
     with:
       kernel_repo: ${{ inputs.kernel_repo }}
