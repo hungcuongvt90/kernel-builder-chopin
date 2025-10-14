@@ -1,4 +1,4 @@
-name: Build Kernel
+name: Build Kernel X86
 
 on:
   workflow_call:
@@ -56,7 +56,7 @@ on:
 jobs:
   Read-configuration:
     name: Set build date
-    runs-on: ubuntu-latest
+    runs-on: ngudoc
     outputs:
       CONFIGS: ${{ steps.generate-matrix.outputs.CONFIGS }}
       BUILD_DATE: ${{ steps.generate-builddate.outputs.BUILDDATE }}
@@ -80,7 +80,7 @@ jobs:
 
   Build-Kernel:
     name: "🐎 Build kernel"
-    runs-on: ubuntu-22.04
+    runs-on: ngudoc
     needs:
       - Read-configuration
     strategy:
@@ -146,7 +146,7 @@ jobs:
           sudo apt-get install -y libxml2-utils libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools lzop flex tree
           sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libfl-dev
           sudo apt-get install -y pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl 
-          sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar llvm g++-multilib bison gperf zlib1g-dev automake
+          sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar llvm g++-multilib bison gperf zlib1g-dev automake lld
 
       # Initialize ccache
       - name: 🚄 Setup ccache
@@ -160,7 +160,6 @@ jobs:
           ccache -o compression=false -o cache_dir=${{ env.CCACHE_DIR }}
 
           # Generate configuration's hash
-          echo $(echo -n '${{ toJSON(matrix.config) }}' | openssl dgst -sha1 | awk '{print $2}')
           echo "HASH=$(echo -n '${{ toJSON(matrix.config) }}' | openssl dgst -sha1 | awk '{print $2}')" >> $GITHUB_ENV
 
       - name: 🚅 Cache ccache & output
@@ -178,14 +177,74 @@ jobs:
             cache-${{ env.KERNEL_NAME }}-${{env.HASH}}-
             cache-${{ env.KERNEL_NAME }}-
 
-      - name: 🌟 Clone kernel source => (${{ env.KERNEL_REPO }})
+      - name: 🌟 Clone source => (${{ env.KERNEL_REPO }} + "susfs4ksu" + "SukiSU_patch")
         run: |
           git clone --recursive --depth=1 -j $(nproc) --branch ${{ env.KERNEL_BRANCH }} ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }}
-          # tree ${{ env.KERNEL_NAME }}
+          ls -la
+          # Clone repositories using the branch names
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b "${{ env.SUSFS_BRANCH }}"
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
 
-      - name: 💫 Get toolchains
-        env:
-          toolchains: "${{ toJSON(matrix.CONFIG.toolchains) }}"
+      # - name: 💫 Get toolchains
+      #   env:
+      #     toolchains: "${{ toJSON(matrix.CONFIG.toolchains) }}"
+      #   run: |
+      #     toolchains_num="$(echo $toolchains | jq 'length')"
+      #     echo "🤔 There is $toolchains_num defined toolchains."
+
+      #     for ((i=0;i<toolchains_num;i++)); do
+      #       toolchain=$(echo $toolchains | jq -r ".[$i]")
+
+      #       toolchain_name=$(echo $toolchain | jq -r ".name")
+
+      #       # From archive
+      #       if echo $toolchain | jq -e 'has("url")' > /dev/null; then
+      #         # If from archive
+      #         toolchain_url=$(echo $toolchain | jq -r ".url")
+      #         mkdir -p $toolchain_name
+
+      #         # # Download archive
+      #         # wget -q "$toolchain_url"
+
+      #         # Get filename
+      #         filename="${toolchain_url##*/}"
+      #         case "$filename" in
+      #           *.zip)
+      #             unzip -d $toolchain_name "$filename"
+      #             ;;
+      #           *.tar)
+      #             tar xvf "$filename" -C $toolchain_name
+      #             ;;
+      #           *.tar.gz)
+      #             tar zxvf "$filename" -C $toolchain_name
+      #             ;;
+      #           *.rar)
+      #             unrar x "$filename" $toolchain_name
+      #             ;;
+      #           *)
+      #             echo "unknown file type: $filename"
+      #             ;;
+      #         esac
+      #         # Delete file to avoid duplicate name conflicts
+      #         rm $filename
+
+      #         echo "🤔 Download $toolchain_name => ($toolchain_url)"
+      #       else
+      #         # If from git
+      #         toolchain_repo=$(echo $toolchain | jq -r ".repo")
+      #         toolchain_branch=$(echo $toolchain | jq -r ".branch")
+      #         git clone --recursive --depth=1 -j $(nproc) --branch $toolchain_branch $toolchain_repo $toolchain_name
+
+      #         echo "🤔 Clone $toolchain_name => ($toolchain_repo)"
+      #       fi
+
+      #       jq -r ".binaryEnv[] | tostring" <<< "$toolchain" | while read -r subPath; do
+      #         echo "${{ env.WORKSPACE }}/$toolchain_name/$subPath" >> $GITHUB_PATH
+      #       done
+      #     done
+
+      - name: Set environment variables
+        working-directory: ${{ env.WORKSPACE }}
         run: |
           toolchains_num="$(echo $toolchains | jq 'length')"
           echo "🤔 There is $toolchains_num defined toolchains."
@@ -194,50 +253,8 @@ jobs:
             toolchain=$(echo $toolchains | jq -r ".[$i]")
 
             toolchain_name=$(echo $toolchain | jq -r ".name")
-            
-            # From archive
-            if echo $toolchain | jq -e 'has("url")' > /dev/null; then
-              # If from archive
-              toolchain_url=$(echo $toolchain | jq -r ".url")
-              mkdir -p $toolchain_name
-
-              # Download archive
-              wget -q "$toolchain_url"
-
-              # Get filename
-              filename="${toolchain_url##*/}"
-              case "$filename" in
-                *.zip)
-                  unzip -d $toolchain_name "$filename"
-                  ;;
-                *.tar)
-                  tar xvf "$filename" -C $toolchain_name
-                  ;;
-                *.tar.gz)
-                  tar zxvf "$filename" -C $toolchain_name
-                  ;;
-                *.rar)
-                  unrar x "$filename" $toolchain_name
-                  ;;
-                *)
-                  echo "unknown file type: $filename"
-                  ;;
-              esac
-              # Delete file to avoid duplicate name conflicts 
-              rm $filename
-
-              echo "🤔 Download $toolchain_name => ($toolchain_url)"
-            else
-              # If from git
-              toolchain_repo=$(echo $toolchain | jq -r ".repo")
-              toolchain_branch=$(echo $toolchain | jq -r ".branch")
-              git clone --recursive --depth=1 -j $(nproc) --branch $toolchain_branch $toolchain_repo $toolchain_name
-
-              echo "🤔 Clone $toolchain_name => ($toolchain_repo)"
-            fi
-
             jq -r ".binaryEnv[] | tostring" <<< "$toolchain" | while read -r subPath; do
-              echo "${{ env.WORKSPACE }}/$toolchain_name/$subPath" >> $GITHUB_PATH
+              echo "/home/runner/$toolchain_name/$subPath" >> $GITHUB_PATH
             done
           done
 
@@ -256,7 +273,7 @@ jobs:
           if [ -n "$CC" ]; then
 
             if [[ "$CC" == *"/"* ]]; then
-              CC=${{ env.WORKSPACE }}/$CC
+              CC=/home/runner/$CC
             fi
 
             if [ ${{ env.ENABLE_CCACHE }} = true ]; then
@@ -269,30 +286,23 @@ jobs:
             key=$(echo "$externalCommand" | cut -d= -f1)
             value=$(echo "$externalCommand" | cut -d= -f2)
             if [[ "$value" == *"/"* ]]; then
-              value="${{ env.WORKSPACE }}/$value"
+              value="/home/runner/$value"
             fi
             args="$args $key=$value"
           done < <(jq -r '.externalCommands | to_entries[] | "\(.key)=\(.value)"' <<< "$PARAMS")
+
+          args="$args BUILD_SHARED_LIBS=ON"
 
           echo "ARCH=$ARCH" >> $GITHUB_ENV
           echo "ARGS=$args" >> $GITHUB_ENV
 
           echo "🤔 $args"
-      - name: Determine the branch for KernelSU
+      - name: Determine the branch for SukiSU KernelSU
         run: |
           if [[ "${{ inputs.kernelsu_branch }}" == "Stable" && ( "${{ inputs.kernelsu_variant }}" == "SukiSU" ) ]]; then
               echo "KSU_BRANCH=-s susfs-main" >> $GITHUB_ENV
           elif [[ "${{ inputs.kernelsu_branch }}" == "Dev" && ( "${{ inputs.kernelsu_variant }}" == "SukiSU" ) ]]; then
-              if [[ "${{ inputs.kernel_version }}" == "5.10" ]]; then
-                  echo "KSU_BRANCH=-s susfs-test" >> $GITHUB_ENV
-              else
-                  echo "KSU_BRANCH=-s susfs-test" >> $GITHUB_ENV
-              fi
-          elif [[ "${{ inputs.kernelsu_branch }}" == "Other" && -n "${{ inputs.kernelsu_branch_other }}" ]]; then
-            echo "KSU_BRANCH=-s ${{ inputs.kernelsu_branch_other }}" >> $GITHUB_ENV
-          else
-            echo "Error: Custom branch not provided for 'Other'" >&2
-            exit 1
+              echo "KSU_BRANCH=-s susfs-test" >> $GITHUB_ENV
           fi
 
       - name: 😋 Setup KernelSU
@@ -322,18 +332,9 @@ jobs:
           fi
 
       - name: 😋 Setup KSU SUSFS
+        working-directory: ${{ env.KERNEL_NAME }}
         if: ${{ env.ENABLE_KERNELSU == 'true' && env.ENABLE_KERNELSU_SFS == 'true' }}
         run: |
-          ls -la
-
-          # Clone repositories using the branch names
-          git clone https://github.com/ShirkNeko/susfs4ksu.git -b "${{ env.SUSFS_BRANCH }}"
-          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
-
-          ls -la
-
-          cd ${{ env.KERNEL_NAME }}
-
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "Applying SUSFS patches for Official KernelSU..."
             cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
@@ -372,8 +373,8 @@ jobs:
             exit 1
           fi
 
-          echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
-          echo "RELEASE_TAG_NAME=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+          echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}}-NO-KPM" >> $GITHUB_ENV
+          echo "RELEASE_TAG_NAME=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-NO-KPM" >> $GITHUB_ENV
       - name: Apply Hide Stuff Patches
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
@@ -457,6 +458,18 @@ jobs:
             echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> "$CONFIG_FILE"
             echo "CONFIG_ZRAM_WRITEBACK=y" >> "$CONFIG_FILE"
           fi
+
+      - name: Apply Mountify configuration settings
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          CONFIG_FILE="./arch/$ARCH/configs/gki_defconfig"
+          echo "Adding configuration settings to gki_defconfig..."
+
+          # Add KSU configuration settings
+          echo "CONFIG_OVERLAY_FS=y" >> $CONFIG_FILE
+
+          cat $CONFIG_FILE
+
       - name: Add SUSFS configuration settings
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
@@ -472,9 +485,14 @@ jobs:
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             echo "CONFIG_KPM=y" >> $CONFIG_FILE
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
-            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $CONFIG_FILE
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
+          fi
+
+          if [ "${{ env.HOOK_VARIANT }}" == "tracepoint" ]; then
+            echo "CONFIG_KSU_TRACEPOINT_HOOK=y" >>  $CONFIG_FILE
+          else
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $CONFIG_FILE
           fi
 
           # Add additional tmpfs config setting
@@ -514,10 +532,10 @@ jobs:
           echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> $CONFIG_FILE
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> $CONFIG_FILE
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $CONFIG_FILE
+          echo "CONFIG_KSU_MANUAL_SU=n" >> $CONFIG_FILE
 
           # Remove check_defconfig
           sed -i 's/check_defconfig//' ./build.config.gki
-
 
           sed -i '$s|echo "\$res"|echo "\$res-ab11001737"|' ./scripts/setlocalversion
 
@@ -545,20 +563,22 @@ jobs:
           make ${{ env.ARGS }}
           ccache --show-stats
       - name: Apply KPM
+        working-directory: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
         run: |
           if [ "${{ inputs.use_kpm }}" = "true" ] && [ "${{ inputs.kernelsu_variant }}" = "SukiSU" ] && [ "${{ inputs.android_version }}" != "6.6" ]; then
             echo "Start to patch KPM" 
             # ls -la ${{ env.OUT_DIR }}/arch/
             # ls -la ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
             # cd ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
-            # ls -la .
+            pwd
+            ls -la .
             curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch_linux
             chmod +x patch_linux
             ./patch_linux
             rm -f Image
             mv oImage Image
-            echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-KPM-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
-            echo "RELEASE_TAG_NAME=${{ inputs.kernelsu_variant }}-KPM-${{ env.HOOK_VARIANT }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+            echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-KPM" >> $GITHUB_ENV
+            echo "RELEASE_TAG_NAME=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}-KPM" >> $GITHUB_ENV
           fi
 
       - name: 💛 Upload Image
@@ -650,7 +670,7 @@ jobs:
           name: "${{ env.ANYKERNEL3_FILE }}"
           path: AnyKernel3/*
 
-      - name: "🧧 Create GitHub Release => (${{ inputs.kernelsu_variant }} - ${{ env.BUILD_DATE }})"
+      - name: "🧧 Create GitHub Release => (${{ env.RELEASE_TAG_NAMEt }})"
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         if: ${{ env.USE_ANYKERNEL3 == 'true' && env.CONFIRM_RELEASE == 'true' }}
