@@ -373,6 +373,7 @@ jobs:
           fi
 
           echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+          echo "RELEASE_TAG_NAME=${{ inputs.kernelsu_variant }}-${{ env.HOOK_VARIANT }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
       - name: Apply Hide Stuff Patches
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
@@ -544,19 +545,21 @@ jobs:
           make ${{ env.ARGS }}
           ccache --show-stats
       - name: Apply KPM
-        if: ${{ inputs.use_kpm == 'true' && inputs.kernelsu_variant == 'SukiSU' && inputs.android_version != '6.6' }}
         run: |
-          echo "Start to patch KPM" 
-          ls -la ${{ env.OUT_DIR }}/arch/
-          ls -la ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
-          cd ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
-          ls -la .
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch_linux
-          chmod +x patch_linux
-          ./patch_linux
-          rm -f Image
-          mv oImage Image
-          echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-KPM-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+          if [ "${{ inputs.use_kpm }}" = "true" ] && [ "${{ inputs.kernelsu_variant }}" = "SukiSU" ] && [ "${{ inputs.android_version }}" != "6.6" ]; then
+            echo "Start to patch KPM" 
+            # ls -la ${{ env.OUT_DIR }}/arch/
+            # ls -la ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
+            # cd ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
+            # ls -la .
+            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch_linux
+            chmod +x patch_linux
+            ./patch_linux
+            rm -f Image
+            mv oImage Image
+            echo "ANYKERNEL3_FILE=${{ inputs.kernelsu_variant }}-KPM-${{ env.HOOK_VARIANT }}-${{ env.KERNEL_NAME }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+            echo "RELEASE_TAG_NAME=${{ inputs.kernelsu_variant }}-KPM-${{ env.HOOK_VARIANT }}-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
+          fi
 
       - name: 💛 Upload Image
         uses: actions/upload-artifact@v4
@@ -638,7 +641,7 @@ jobs:
           cd AnyKernel3/
           zip -q -r "${{ env.ANYKERNEL3_FILE }}.zip" *
           ls -la .
-          ls -la AnyKernel3/
+          pwd
 
       - name: "💾 Upload AnyKernel3 image => (${{ env.BUILD_DATE }})"
         uses: actions/upload-artifact@v4
@@ -652,6 +655,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: ${{ env.USE_ANYKERNEL3 == 'true' && env.CONFIRM_RELEASE == 'true' }}
         with:
-          tag_name: v${{ env.BUILD_DATE }}.${{ github.run_number }}
+          tag_name: ${{ env.RELEASE_TAG_NAME }}
           files: "${{ env.WORKSPACE }}/AnyKernel3/${{ env.ANYKERNEL3_FILE }}.zip"
           generate_release_notes: true
