@@ -546,6 +546,15 @@ jobs:
           ccache --show-stats
       - name: Apply KPM
         run: |
+          echo "Use KPM: ${{ inputs.use_kpm }}"
+          echo "KSU Variant: ${{ inputs.kernelsu_variant }}"
+          echo "Android Version: ${{ inputs.android_version }}"
+          use_kpm=$((${{ inputs.use_kpm }} == "true"))
+          echo "evaluation: $use_kpm"
+          kernelsu_variant=$((${{ inputs.kernelsu_variant }} == "SukiSU"))
+          echo "evaluation: $kernelsu_variant"
+          android_version=$((${{ inputs.android_version }} != "6.6"))
+          echo "evaluation: $android_version"
           if [ "${{ inputs.use_kpm }}" == "true" ] && [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ] && [ "${{ inputs.android_version }}" != "6.6" ]; then
             echo "Start to patch KPM" 
             ls -la ${{ env.OUT_DIR }}/arch/
