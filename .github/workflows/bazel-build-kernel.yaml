@@ -1,4 +1,4 @@
-name: Build Kernel X86
+name: Bazel Build Kernel X86
 
 on:
   workflow_call:
