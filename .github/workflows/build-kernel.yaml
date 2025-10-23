@@ -405,6 +405,7 @@ jobs:
           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
           cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
 
+
           cp ../SukiSU_patch/other/zram/zram_patch/${{ env.ZRAM_PATCH_VERSION }}/lz4kd.patch ./
           echo "Applying lz4kd patch"
           patch -p1 -F 3 < lz4kd.patch || true
@@ -414,6 +415,14 @@ jobs:
           echo "Applying lz4k_oplus patch"
           patch -p1 -F 3 < lz4k_oplus.patch || true
           echo "Completed the lz4k_oplus patch"
+
+      - name: Apply SCHED
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          git clone https://github.com/HanKuCha/sched_ext.git
+          cp -r ./sched_ext/* ./kernel/sched
+          rm -rf ./sched_ext/.git
+          cd ./kernel/sched
 
       - name: LZ4KD & Lz4k_oplus Configuration
         working-directory: ${{ env.KERNEL_NAME }}
@@ -547,6 +556,16 @@ jobs:
 
           cat $CONFIG_FILE
 
+      - name: Enable lto=thin For FAST
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          CONFIG_FILE="./arch/$ARCH/configs/gki_defconfig"
+          echo "Enabling ThinLTO in $CONFIG_FILE"
+          sed -i 's/^CONFIG_LTO=n/CONFIG_LTO=y/' "$CONFIG_FILE"
+          sed -i 's/^CONFIG_LTO_CLANG_FULL=y/CONFIG_LTO_CLANG_THIN=y/' "$CONFIG_FILE"
+          sed -i 's/^CONFIG_LTO_CLANG_NONE=y/CONFIG_LTO_CLANG_THIN=y/' "$CONFIG_FILE"
+          grep -q '^CONFIG_LTO_CLANG_THIN=y' "$CONFIG_FILE" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$CONFIG_FILE"
+
       - name: 🧹 Commit to avoid dirty
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
@@ -565,8 +584,8 @@ jobs:
 
           echo "Start to build kernel with following args:\n ${{ env.ARGS }}\nDeconfig path:\n${{ env.KERNEL_DEFCONFIG_PATH }}"
 
-          make ${{ env.ARGS }} ${{ env.KERNEL_DEFCONFIG_PATH }}
-          make ${{ env.ARGS }}
+          make LLVM_IAS=1 ${{ env.ARGS }} ${{ env.KERNEL_DEFCONFIG_PATH }}
+          make LLVM_IAS=1 ${{ env.ARGS }}
           ccache --show-stats
       - name: Apply KPM
         working-directory: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
