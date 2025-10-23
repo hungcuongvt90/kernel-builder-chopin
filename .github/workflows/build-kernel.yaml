@@ -38,11 +38,16 @@ on:
         required: true
         type: string
         default: "gki-android13-5.15"
-      use_zram:
-        description: "Enable more ZRAM algorithms?"
-        required: true
+      # use_zram:
+      #   description: "Enable more ZRAM algorithms?"
+      #   required: true
+      #   type: boolean
+      #   default: true
+      LSM:
         type: boolean
-        default: true
+        description: "Enable kernel-level protection against illegal writes to critical partitions/device nodes(LSM)？"
+        required: true
+        default: false
       use_kpm:
         description: "Enable KPM functionality?"
         required: true
@@ -56,7 +61,8 @@ on:
 jobs:
   Read-configuration:
     name: Set build date
-    runs-on: ngudoc
+    # runs-on: ngudoc
+    runs-on: ubuntu-latest
     outputs:
       CONFIGS: ${{ steps.generate-matrix.outputs.CONFIGS }}
       BUILD_DATE: ${{ steps.generate-builddate.outputs.BUILDDATE }}
@@ -80,7 +86,8 @@ jobs:
 
   Build-Kernel:
     name: "🐎 Build kernel"
-    runs-on: ngudoc
+    runs-on: ubuntu-latest
+    # runs-on: ngudoc
     needs:
       - Read-configuration
     strategy:
@@ -103,8 +110,8 @@ jobs:
       KERNEL_PATCH_REPO_URL: ${{ github.event.inputs.kernel_patch_repo }}
       HOOK_VARIANT: ${{ github.event.inputs.hook_variant }}
       SUSFS_BRANCH: ${{ github.event.inputs.susfs_branch }}
-      USE_ZRAM: ${{ github.event.inputs.use_zram }}
-      ZRAM_PATCH_VERSION: ${{ github.event.inputs.android_version }}
+      # USE_ZRAM: ${{ github.event.inputs.use_zram }}
+      # ZRAM_PATCH_VERSION: ${{ github.event.inputs.android_version }}
       USE_KPM: ${{ github.event.inputs.use_kpm }}
 
       # Whether to use ccache to speed up compilation
@@ -125,6 +132,7 @@ jobs:
       # Set output & ccache directory
       OUT_DIR: "${{ github.workspace }}/out"
       CCACHE_DIR: "${{ github.workspace }}/ccache"
+      ARCH: "arm64"
     steps:
       # Set swap space
       - name: 📐 Set swap to 10G
@@ -140,9 +148,9 @@ jobs:
       - name: ⭐ Install prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl git ftp lftp wget libarchive-tools ccache python2 python2-dev python3
+          sudo apt-get install -y curl git ftp lftp wget libarchive-tools ccache python3-dev
           sudo apt-get install -y pngcrush schedtool dpkg-dev liblz4-tool make optipng maven dwarves device-tree-compiler 
-          sudo apt-get install -y libc6-dev-i386 libelf-dev lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc
+          sudo apt-get install -y libc6-dev-i386 libelf-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc
           sudo apt-get install -y libxml2-utils libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools lzop flex tree
           sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libfl-dev
           sudo apt-get install -y pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl 
@@ -184,67 +192,11 @@ jobs:
           # Clone repositories using the branch names
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "${{ env.SUSFS_BRANCH }}"
           git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
+          git clone https://github.com/Tools-cx-app/kernel_patches.git
 
-      # - name: 💫 Get toolchains
-      #   env:
-      #     toolchains: "${{ toJSON(matrix.CONFIG.toolchains) }}"
-      #   run: |
-      #     toolchains_num="$(echo $toolchains | jq 'length')"
-      #     echo "🤔 There is $toolchains_num defined toolchains."
-
-      #     for ((i=0;i<toolchains_num;i++)); do
-      #       toolchain=$(echo $toolchains | jq -r ".[$i]")
-
-      #       toolchain_name=$(echo $toolchain | jq -r ".name")
-
-      #       # From archive
-      #       if echo $toolchain | jq -e 'has("url")' > /dev/null; then
-      #         # If from archive
-      #         toolchain_url=$(echo $toolchain | jq -r ".url")
-      #         mkdir -p $toolchain_name
-
-      #         # # Download archive
-      #         # wget -q "$toolchain_url"
-
-      #         # Get filename
-      #         filename="${toolchain_url##*/}"
-      #         case "$filename" in
-      #           *.zip)
-      #             unzip -d $toolchain_name "$filename"
-      #             ;;
-      #           *.tar)
-      #             tar xvf "$filename" -C $toolchain_name
-      #             ;;
-      #           *.tar.gz)
-      #             tar zxvf "$filename" -C $toolchain_name
-      #             ;;
-      #           *.rar)
-      #             unrar x "$filename" $toolchain_name
-      #             ;;
-      #           *)
-      #             echo "unknown file type: $filename"
-      #             ;;
-      #         esac
-      #         # Delete file to avoid duplicate name conflicts
-      #         rm $filename
-
-      #         echo "🤔 Download $toolchain_name => ($toolchain_url)"
-      #       else
-      #         # If from git
-      #         toolchain_repo=$(echo $toolchain | jq -r ".repo")
-      #         toolchain_branch=$(echo $toolchain | jq -r ".branch")
-      #         git clone --recursive --depth=1 -j $(nproc) --branch $toolchain_branch $toolchain_repo $toolchain_name
-
-      #         echo "🤔 Clone $toolchain_name => ($toolchain_repo)"
-      #       fi
-
-      #       jq -r ".binaryEnv[] | tostring" <<< "$toolchain" | while read -r subPath; do
-      #         echo "${{ env.WORKSPACE }}/$toolchain_name/$subPath" >> $GITHUB_PATH
-      #       done
-      #     done
-
-      - name: Set environment variables
-        working-directory: ${{ env.WORKSPACE }}
+      - name: 💫 Get toolchains on ubuntu github runner
+        env:
+          toolchains: "${{ toJSON(matrix.CONFIG.toolchains) }}"
         run: |
           toolchains_num="$(echo $toolchains | jq 'length')"
           echo "🤔 There is $toolchains_num defined toolchains."
@@ -253,12 +205,54 @@ jobs:
             toolchain=$(echo $toolchains | jq -r ".[$i]")
 
             toolchain_name=$(echo $toolchain | jq -r ".name")
+            
+            # From archive
+            if echo $toolchain | jq -e 'has("url")' > /dev/null; then
+              # If from archive
+              toolchain_url=$(echo $toolchain | jq -r ".url")
+              mkdir -p $toolchain_name
+
+              # Download archive
+              wget -q "$toolchain_url"
+
+              # Get filename
+              filename="${toolchain_url##*/}"
+              case "$filename" in
+                *.zip)
+                  unzip -d $toolchain_name "$filename"
+                  ;;
+                *.tar)
+                  tar xvf "$filename" -C $toolchain_name
+                  ;;
+                *.tar.gz)
+                  tar zxvf "$filename" -C $toolchain_name
+                  ;;
+                *.rar)
+                  unrar x "$filename" $toolchain_name
+                  ;;
+                *)
+                  echo "unknown file type: $filename"
+                  ;;
+              esac
+              # Delete file to avoid duplicate name conflicts 
+              rm $filename
+
+              echo "🤔 Download $toolchain_name => ($toolchain_url)"
+            else
+              # If from git
+              toolchain_repo=$(echo $toolchain | jq -r ".repo")
+              toolchain_branch=$(echo $toolchain | jq -r ".branch")
+              git clone --recursive --depth=1 -j $(nproc) --branch $toolchain_branch $toolchain_repo $toolchain_name
+
+              echo "🤔 Clone $toolchain_name => ($toolchain_repo)"
+            fi
+
             jq -r ".binaryEnv[] | tostring" <<< "$toolchain" | while read -r subPath; do
-              echo "/home/runner/$toolchain_name/$subPath" >> $GITHUB_PATH
+              echo "${{ env.WORKSPACE }}/$toolchain_name/$subPath" >> $GITHUB_PATH
             done
           done
 
-      - name: 😎 Set build args
+      - name: 😎 Set build args on ubuntu github runner
         id: generate-args
         env:
           PARAMS: "${{ toJSON(matrix.CONFIG.params) }}"
@@ -266,14 +260,13 @@ jobs:
         run: |
           echo "🤔 PATH Variable: $PATH"
 
-          ARCH="arm64"
-          CC="clang/bin/clang"
+          CC=$(echo $PARAMS | jq -r ".CC")
 
           args="-j${{ env.THREAD }} O=${{ env.OUT_DIR }} ARCH=$ARCH"
           if [ -n "$CC" ]; then
 
             if [[ "$CC" == *"/"* ]]; then
-              CC=/home/runner/$CC
+              CC=${{ env.WORKSPACE }}/$CC
             fi
 
             if [ ${{ env.ENABLE_CCACHE }} = true ]; then
@@ -286,17 +279,71 @@ jobs:
             key=$(echo "$externalCommand" | cut -d= -f1)
             value=$(echo "$externalCommand" | cut -d= -f2)
             if [[ "$value" == *"/"* ]]; then
-              value="/home/runner/$value"
+              value="${{ env.WORKSPACE }}/$value"
             fi
             args="$args $key=$value"
           done < <(jq -r '.externalCommands | to_entries[] | "\(.key)=\(.value)"' <<< "$PARAMS")
 
-          args="$args BUILD_SHARED_LIBS=ON"
-
           echo "ARCH=$ARCH" >> $GITHUB_ENV
-          echo "ARGS=$args" >> $GITHUB_ENV
+          echo "ARGS=$args LLVM_IAS=1" >> $GITHUB_ENV
 
-          echo "🤔 $args"
+          echo "🤔 $args LLVM_IAS=1"
+
+      # - name: Set environment variables docker
+      #   working-directory: ${{ env.WORKSPACE }}
+      #   run: |
+      #     toolchains_num="$(echo $toolchains | jq 'length')"
+      #     echo "🤔 There is $toolchains_num defined toolchains."
+
+      #     for ((i=0;i<toolchains_num;i++)); do
+      #       toolchain=$(echo $toolchains | jq -r ".[$i]")
+
+      #       toolchain_name=$(echo $toolchain | jq -r ".name")
+      #       jq -r ".binaryEnv[] | tostring" <<< "$toolchain" | while read -r subPath; do
+      #         echo "/home/runner/$toolchain_name/$subPath" >> $GITHUB_PATH
+      #       done
+      #     done
+
+      # - name: 😎 Set build args docker
+      #   id: generate-args
+      #   env:
+      #     PARAMS: "${{ toJSON(matrix.CONFIG.params) }}"
+      #     THREAD: $(nproc --all)
+      #   run: |
+      #     echo "🤔 PATH Variable: $PATH"
+
+      #     ARCH="arm64"
+      #     CC="clang/bin/clang"
+
+      #     args="-j${{ env.THREAD }} O=${{ env.OUT_DIR }} ARCH=$ARCH"
+      #     if [ -n "$CC" ]; then
+
+      #       if [[ "$CC" == *"/"* ]]; then
+      #         CC=/home/runner/$CC
+      #       fi
+
+      #       if [ ${{ env.ENABLE_CCACHE }} = true ]; then
+      #         args="$args CC=\"ccache $CC\""
+      #       else
+      #         args="$args CC=$CC"
+      #       fi
+      #     fi
+      #     while read -r externalCommand; do
+      #       key=$(echo "$externalCommand" | cut -d= -f1)
+      #       value=$(echo "$externalCommand" | cut -d= -f2)
+      #       if [[ "$value" == *"/"* ]]; then
+      #         value="/home/runner/$value"
+      #       fi
+      #       args="$args $key=$value"
+      #     done < <(jq -r '.externalCommands | to_entries[] | "\(.key)=\(.value)"' <<< "$PARAMS")
+
+      #     args="$args BUILD_SHARED_LIBS=ON LLVM_IAS=1"
+
+      #     echo "ARCH=$ARCH" >> $GITHUB_ENV
+      #     echo "ARGS=$args" >> $GITHUB_ENV
+
+      #     echo "🤔 $args"
+
       - name: Determine the branch for SukiSU KernelSU
         run: |
           if [[ "${{ inputs.kernelsu_branch }}" == "Stable" && ( "${{ inputs.kernelsu_variant }}" == "SukiSU" ) ]]; then
@@ -322,13 +369,24 @@ jobs:
             curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash $KSU_BRANCH
           elif [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "Adding KernelSU Next..."
-            curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash $KSU_BRANCH
+            curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash $KSU_BRANCH
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
             echo "Adding KernelSU MKSU..."
             curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash $KSU_BRANCH
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             echo "Adding KernelSU SukiSU..."
             curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $KSU_BRANCH
+          fi
+
+          if echo -n '${{ env.PARAMS }}' | jq -e 'has("custom")' > /dev/null; then
+            CUSTOM_ANYKERNEL3=$(echo -n '${{ env.PARAMS }}' | jq -r ".custom")
+            ANYKERNEL_REPO=$(echo $CUSTOM_ANYKERNEL3 | jq -r ".repo")
+            ANYKERNEL_BRANCH=$(echo $CUSTOM_ANYKERNEL3 | jq -r ".branch")
+            git clone --recursive --depth=1 -j $(nproc) --branch $ANYKERNEL_BRANCH $ANYKERNEL_REPO AnyKernel3
+            echo "🤔 Use custom AnyKernel3 => ($ANYKERNEL_REPO)"
+          else
+            git clone --recursive --depth=1 -j $(nproc) https://github.com/WildPlusKernel/AnyKernel3 AnyKernel3
+            echo "🤔 Use WildPlus Anykernel3 => (https://github.com/WildPlusKernel/AnyKernel3)"
           fi
 
       - name: 😋 Setup KSU SUSFS
@@ -338,16 +396,15 @@ jobs:
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "Applying SUSFS patches for Official KernelSU..."
             cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-            patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch
+            patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
           elif [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "Applying SUSFS patches for KernelSU-Next..."
-            cp ../kernel_patches/next/scope_min_manual_hooks_v1.5.patch ./
-            patch -p1 -F 3 < scope_min_manual_hooks_v1.5.patch
+            cp ../kernel_patches/next/next_hooks.patch ./
+            patch -p1 -F 3 < next_hooks.patch
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
             echo "Applying SUSFS patches for MKSU..."
             cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
             patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
-
             echo "Applying MKSU specific SUSFS patch..."
             cp ../kernel_patches/mksu/mksu_susfs.patch ./
             patch -p1 < mksu_susfs.patch || true
@@ -394,76 +451,57 @@ jobs:
               patch -p1 -F 3 < 69_hide_stuff.patch
           fi
 
-      - name: Copy source files & apply LZ4KD & ZSTDN patches
+      # - name: Copy source files & apply LZ4KD & ZSTDN patches
+      #   working-directory: ${{ env.KERNEL_NAME }}
+      #   if: ${{ env.USE_ZRAM == 'true' && inputs.kernelsu_variant == 'SukiSU' }}
+      #   run: |
+      #     echo "Apply LZ4KD patches"
+
+      #     cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
+      #     cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
+      #     cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
+      #     cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+
+      #     cp ../SukiSU_patch/other/zram/zram_patch/${{ env.ZRAM_PATCH_VERSION }}/lz4kd.patch ./
+      #     echo "Applying lz4kd patch"
+      #     patch -p1 -F 3 < lz4kd.patch || true
+      #     echo "Completed LZ4KD patch"
+
+      #     cp ../SukiSU_patch/other/zram/zram_patch/${{ env.ZRAM_PATCH_VERSION }}/lz4k_oplus.patch ./
+      #     echo "Applying lz4k_oplus patch"
+      #     patch -p1 -F 3 < lz4k_oplus.patch || true
+      #     echo "Completed the lz4k_oplus patch"
+
+      - name: Apply SCHED
         working-directory: ${{ env.KERNEL_NAME }}
-        if: ${{ inputs.use_zram == 'true' && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
-          echo "Apply LZ4KD patches"
+          git clone https://github.com/HanKuCha/sched_ext.git
+          cp -r ./sched_ext/* ./kernel/sched
+          rm -rf ./sched_ext/.git
+          cd ./kernel/sched
 
-          cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
-          cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
-          cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
-          cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+      # - name: LZ4KD & Lz4k_oplus Configuration
+      #   working-directory: ${{ env.KERNEL_NAME }}
+      #   if: ${{ env.USE_ZRAM == 'true' && inputs.kernelsu_variant == 'SukiSU' }}
+      #   run: |
+      #     set -x
+      #     set -e
+      #     echo "Write LZ4KD&ZSTDN config dependency"
+      #     CONFIG_FILE="./arch/$ARCH/configs/gki_defconfig"
 
-          cp ../SukiSU_patch/other/zram/zram_patch/${{ env.ZRAM_PATCH_VERSION }}/lz4kd.patch ./
-          echo "Applying lz4kd patch"
-          patch -p1 -F 3 < lz4kd.patch || true
-          echo "Completed LZ4KD patch"
-
-          cp ../SukiSU_patch/other/zram/zram_patch/${{ env.ZRAM_PATCH_VERSION }}/lz4k_oplus.patch ./
-          echo "Applying lz4k_oplus patch"
-          patch -p1 -F 3 < lz4k_oplus.patch || true
-          echo "Completed the lz4k_oplus patch"
-
-      - name: LZ4KD & Lz4k_oplus Configuration
-        working-directory: ${{ env.KERNEL_NAME }}
-        if: ${{ inputs.use_zram == 'true' && inputs.kernelsu_variant == 'SukiSU' }}
-        run: |
-          set -x
-          set -e
-          echo "Write LZ4KD&ZSTDN config dependency"
-          CONFIG_FILE="./arch/$ARCH/configs/gki_defconfig"
-
-          if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
-              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
-              echo "CONFIG_ZRAM=y" >> "$CONFIG_FILE"
-              echo "CONFIG_MODULE_SIG=n" >> "$CONFIG_FILE"
-              echo "CONFIG_CRYPTO_LZO=y" >> "$CONFIG_FILE"
-              echo "CONFIG_ZRAM_DEF_COMP_LZ4KD=y" >> "$CONFIG_FILE"
-          fi
-
-          if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
-              # sed -i 's/CONFIG_MODULE_SIG=y/CONFIG_MODULE_SIG=n/g' "$CONFIG_FILE"
-              if grep -q "CONFIG_ZSMALLOC" -- "$CONFIG_FILE"; then
-                  echo "Hint: The file $CONFIG_FILE contains the string CONFIG_ZSMALLOC."
-                  sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
-              else
-                  echo "Warning: File $CONFIG_FILE does not contain string CONFIG_ZSMALLOC."
-                  echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
-              fi
-
-              sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
-          fi
-
-          if [ "${{ inputs.kernel_version }}" = "6.6" ]; then
-              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
-              sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
-          fi
-
-          if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
-            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$CONFIG/modules.bzl"
-            echo "CONFIG_MODULE_SIG_FORCE=n" >> "$CONFIG_FILE"
-            echo 'Android14_Bazel:已修复zram&zsmalloc'
-          fi
-
-          if grep -q "CONFIG_ZSMALLOC=y" "$CONFIG_FILE" && grep -q "CONFIG_ZRAM=y" "$CONFIG_FILE"; then
-            echo "CONFIG_CRYPTO_LZ4HC=y" >> "$CONFIG_FILE"
-            echo "CONFIG_CRYPTO_LZ4K=y" >> "$CONFIG_FILE"
-            echo "CONFIG_CRYPTO_LZ4KD=y" >> "$CONFIG_FILE"
-            echo "CONFIG_CRYPTO_842=y" >> "$CONFIG_FILE"
-            echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> "$CONFIG_FILE"
-            echo "CONFIG_ZRAM_WRITEBACK=y" >> "$CONFIG_FILE"
-          fi
+      #     if [ "${{ inputs.use_kpm }}" = "true" ] && [ "${{ inputs.kernelsu_variant }}" = "SukiSU" ] && [ "${{ inputs.android_version }}" == "5.15" ]; then
+      #         echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_ZRAM=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_MODULE_SIG=n" >> "$CONFIG_FILE"
+      #         echo "CONFIG_CRYPTO_LZO=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_ZRAM_DEF_COMP_LZ4KD=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_CRYPTO_LZ4HC=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_CRYPTO_LZ4K=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_CRYPTO_LZ4KD=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_CRYPTO_842=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> "$CONFIG_FILE"
+      #         echo "CONFIG_ZRAM_WRITEBACK=y" >> "$CONFIG_FILE"
+      #     fi
 
       - name: Apply Mountify configuration settings
         working-directory: ${{ env.KERNEL_NAME }}
@@ -475,6 +513,13 @@ jobs:
           echo "CONFIG_OVERLAY_FS=y" >> $CONFIG_FILE
 
           cat $CONFIG_FILE
+
+      # - name: Apply LSM_BBG
+      #   working-directory: ${{ env.KERNEL_NAME }}
+      #   if: ${{ github.event.inputs.LSM == 'true' }}
+      #   run: |
+      #     echo "Enabling kernel-level baseband protection support…"
+      #     curl -LSs https://raw.githubusercontent.com/vc-teahouse/Baseband-guard/main/setup.sh | bash
 
       - name: Add SUSFS configuration settings
         working-directory: ${{ env.KERNEL_NAME }}
@@ -540,12 +585,38 @@ jobs:
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $CONFIG_FILE
           echo "CONFIG_KSU_MANUAL_SU=n" >> $CONFIG_FILE
 
+          # # Add ZRAM configuration
+
+          # if [ "${{ inputs.use_zram }}" = "true" ] && [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+          #   echo "CONFIG_CRYPTO_LZ4HC=y" >> "$CONFIG_FILE"
+          #   echo "CONFIG_CRYPTO_LZ4K=y" >> "$CONFIG_FILE"
+          #   echo "CONFIG_CRYPTO_LZ4KD=y" >> "$CONFIG_FILE"
+          #   echo "CONFIG_CRYPTO_842=y" >> "$CONFIG_FILE"
+          #   echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> "$CONFIG_FILE"
+          #   echo "CONFIG_ZRAM_WRITEBACK=y" >> "$CONFIG_FILE"
+          # fi
+
+          # LSM Configuration*
+          # if [ "${{ github.event.inputs.LSM }}" = "true" ]; then
+          #   echo "CONFIG_BBG=y" >> "$CONFIG_FILE"
+          # fi
+
           # Remove check_defconfig
           sed -i 's/check_defconfig//' ./build.config.gki
 
           sed -i '$s|echo "\$res"|echo "\$res-ab11001737"|' ./scripts/setlocalversion
 
           cat $CONFIG_FILE
+
+      - name: Enable lto=thin For FAST
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          CONFIG_FILE="./arch/$ARCH/configs/gki_defconfig"
+          echo "Enabling ThinLTO in $CONFIG_FILE"
+          sed -i 's/^CONFIG_LTO=n/CONFIG_LTO=y/' "$CONFIG_FILE"
+          sed -i 's/^CONFIG_LTO_CLANG_FULL=y/CONFIG_LTO_CLANG_THIN=y/' "$CONFIG_FILE"
+          sed -i 's/^CONFIG_LTO_CLANG_NONE=y/CONFIG_LTO_CLANG_THIN=y/' "$CONFIG_FILE"
+          grep -q '^CONFIG_LTO_CLANG_THIN=y' "$CONFIG_FILE" || echo 'CONFIG_LTO_CLANG_THIN=y' >> "$CONFIG_FILE"
 
       - name: 🧹 Commit to avoid dirty
         working-directory: ${{ env.KERNEL_NAME }}
@@ -568,6 +639,7 @@ jobs:
           make ${{ env.ARGS }} ${{ env.KERNEL_DEFCONFIG_PATH }}
           make ${{ env.ARGS }}
           ccache --show-stats
+
       - name: Apply KPM
         working-directory: ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/
         run: |
@@ -639,17 +711,6 @@ jobs:
         env:
           PARAMS: "${{ toJSON(matrix.CONFIG.AnyKernel3) }}"
         run: |
-          if echo -n '${{ env.PARAMS }}' | jq -e 'has("custom")' > /dev/null; then
-            CUSTOM_ANYKERNEL3=$(echo -n '${{ env.PARAMS }}' | jq -r ".custom")
-            ANYKERNEL_REPO=$(echo $CUSTOM_ANYKERNEL3 | jq -r ".repo")
-            ANYKERNEL_BRANCH=$(echo $CUSTOM_ANYKERNEL3 | jq -r ".branch")
-            git clone --recursive --depth=1 -j $(nproc) --branch $ANYKERNEL_BRANCH $ANYKERNEL_REPO AnyKernel3
-            echo "🤔 Use custom AnyKernel3 => ($ANYKERNEL_REPO)"
-          else
-            git clone --recursive --depth=1 -j $(nproc) https://github.com/WildPlusKernel/AnyKernel3 AnyKernel3
-            echo "🤔 Use WildPlus Anykernel3 => (https://github.com/WildPlusKernel/AnyKernel3)"
-          fi
-
           if [ -e "${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz-dtb" ]; then
             cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz-dtb ./AnyKernel3/
           else
@@ -663,6 +724,10 @@ jobs:
               cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img ./AnyKernel3/
             fi
           fi
+
+          curl -LSs https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip -o ksu_module_susfs_1.5.2+.zip
+          mv ksu_module_susfs_1.5.2+.zip ksu_module_susfs_1.5.2+_Release.zip
+          cp ksu_module_susfs_1.5.2+_Release.zip ./AnyKernel3/
 
           cd AnyKernel3/
           zip -q -r "${{ env.ANYKERNEL3_FILE }}.zip" *
