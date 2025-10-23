@@ -59,10 +59,15 @@ on:
           - gki-android14-6.1-dev
           - gki-android15-6.6
         default: "gki-android13-5.15"
-      use_zram:
-        description: "Enable more ZRAM algorithms?"
-        required: true
+      # use_zram:
+      #   description: "Enable more ZRAM algorithms?"
+      #   required: true
+      #   type: boolean
+      #   default: false
+      LSM:
         type: boolean
+        description: "Enable kernel-level protection against illegal writes to critical partitions/device nodes(LSM)？"
+        required: true
         default: false
       use_kpm:
         description: "Enable KPM functionality?"
@@ -91,6 +96,7 @@ jobs:
       kernel_patch_repo: ${{ inputs.kernel_patch_repo }}
       hook_variant: ${{ inputs.hook_variant }}
       susfs_branch: ${{ inputs.susfs_branch }}
-      use_zram: ${{ inputs.use_zram }}
+      LSM: ${{ inputs.LSM }}
+      # use_zram: ${{ inputs.use_zram }}
       use_kpm: ${{ inputs.use_kpm }}
       android_version: ${{ inputs.android_version }}
